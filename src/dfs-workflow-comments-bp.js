@@ -38,8 +38,8 @@ class CommentsElement extends LitElement {
         .comment-text {
           line-height: 1.6;
           color: #2c3e50;
-          font-size: 0.95rem
-          white-space: pre-wrap; /* preserves line breaks and wraps long lines */
+          font-size: 0.95rem;
+          white-space: pre-wrap;
         }
 
         .comment-date {
