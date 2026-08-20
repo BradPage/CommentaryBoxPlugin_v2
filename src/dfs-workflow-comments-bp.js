@@ -80,13 +80,12 @@ class CommentsElement extends LitElement {
 
   static getMetaConfig() {
     return {
-      controlName: 'Workflow Comments',
+      controlName: 'dfs-workflow-comments-bp-v2',
       fallbackDisableSubmit: false,
       description: 'Notes and comments',
       iconUrl: 'https://bradpage.github.io/WebComponents/public/media/icons/icon.svg',
       groupName: 'DFS',
       version: '2.2',
-      searchTerms: ['comment', 'comments', 'notes', 'commentary', 'history', 'audit'],
       properties: {
         commentsBorder: {
           title: 'Show Border on comments',
@@ -127,7 +126,6 @@ class CommentsElement extends LitElement {
           title: 'Comment history display limit',
           description: 'Enter a number value of how many comments should be shown, older comments are hidden, entering 0 will show all comments, default is 5.',
           defaultValue: 5,
-          minimum: 0,
         },
         outputobj: {
           title: 'Comments Output',
