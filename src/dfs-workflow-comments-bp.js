@@ -453,4 +453,4 @@ class CommentsElement extends LitElement {
   }
 }
 
-customElements.define('dfs-workflow-comments-bp', CommentsElement);
+customElements.define('dfs-workflow-comments-bp-v2', CommentsElement);

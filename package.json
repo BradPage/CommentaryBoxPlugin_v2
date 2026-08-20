@@ -2,21 +2,21 @@
   "name": "dfs-workflow-comments",
   "version": "1.0.0",
   "description": "",
-  "main": "./src/dfs-workflow-comments-bp.js",
+  "main": "./src/dfs-workflow-comments-bp-v2.js",
   "browser": "./src/index.html",
   "scripts": {
     "build": "webpack"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/BradPage/CommentaryBoxPlugin.git"
+    "url": "https://github.com/BradPage/CommentaryBoxPlugin_v2.git"
   },
   "author": "Jake Dennison - Forked by Brad Page",
   "license": "UNLICENSED",
   "bugs": {
-    "url": "https://github.com/BradPage/CommentaryBoxPlugin.git"
+    "url": "https://github.com/BradPage/CommentaryBoxPlugin_v2.git"
   },
-  "homepage": "https://github.com/BradPage/CommentaryBoxPlugin.git",
+  "homepage": "https://github.com/BradPage/CommentaryBoxPlugin_v2.git",
   "dependencies": {
     "@nintex/form-plugin-contract": "^1.0.5",
     "css-loader": "^6.8.1",
