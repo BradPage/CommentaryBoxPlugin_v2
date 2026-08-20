@@ -2,6 +2,11 @@ import { LitElement, html, css } from 'lit';
 import { componentStyles } from './styles.js';
 import { sendIcon, deleteIcon, expandIcon } from './icons.js';
 
+const newId = () =>
+  (typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+
 class CommentsElement extends LitElement {
 
   static get styles() {
@@ -46,18 +51,42 @@ class CommentsElement extends LitElement {
           font-size: 0.85rem;
           font-weight: 500;
         }
+
+        /* Visually hidden, still read by screen readers */
+        .visually-hidden-label {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .comment-card {
+            animation: none;
+            transition: none;
+          }
+          .comment-card:hover {
+            transform: none;
+          }
+        }
       `
     ];
   }
 
   static getMetaConfig() {
     return {
-      controlName: 'dfs-workflow-comments-bp',
+      controlName: 'Workflow Comments',
       fallbackDisableSubmit: false,
       description: 'Notes and comments',
-      iconUrl:'https://bradpage.github.io/WebComponents/public/media/icons/icon.svg',
+      iconUrl: 'https://bradpage.github.io/WebComponents/public/media/icons/icon.svg',
       groupName: 'DFS',
-      version: '2.1',
+      version: '2.2',
+      searchTerms: ['comment', 'comments', 'notes', 'commentary', 'history', 'audit'],
       properties: {
         commentsBorder: {
           title: 'Show Border on comments',
@@ -93,11 +122,12 @@ class CommentsElement extends LitElement {
           title: 'Input Object',
           description: 'Enter the comments object from previous control here',
         },
-        historyLimit: { 
-          type: 'integer', 
-          title: 'Comment history display limit', 
+        historyLimit: {
+          type: 'integer',
+          title: 'Comment history display limit',
           description: 'Enter a number value of how many comments should be shown, older comments are hidden, entering 0 will show all comments, default is 5.',
           defaultValue: 5,
+          minimum: 0,
         },
         outputobj: {
           title: 'Comments Output',
@@ -106,15 +136,16 @@ class CommentsElement extends LitElement {
           isValueField: true,
           properties: {
             comments: {
-              type: 'array', //change to object to deploy, change to array to use in the control
+              type: 'object', // SWAP to 'object' to register, back to 'array' to run.
               description: 'Array of comments',
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', description: 'Comment identifier', title: 'Comment ID' },
                   firstName: { type: 'string', description: 'First Name', title: 'First Name' },
                   lastName: { type: 'string', description: 'Last Name', title: 'Last Name' },
                   email: { type: 'string', description: 'Email Address', title: 'Email Address' },
-                  taskowner: { type: 'string',description: 'Task Owner', title: 'Task Owner' },
+                  taskowner: { type: 'string', description: 'Task Owner', title: 'Task Owner' },
                   badge: { type: 'string', description: 'Badge Status', title: 'Badge Status' },
                   badgeStyle: { type: 'string', description: 'Badge Style', title: 'Badge Style' },
                   comment: { type: 'string', description: 'Comment', title: 'Comment' },
@@ -126,10 +157,11 @@ class CommentsElement extends LitElement {
               type: 'object',
               description: 'Latest comment',
               properties: {
+                id: { type: 'string', description: 'Comment identifier', title: 'Comment ID' },
                 firstName: { type: 'string', description: 'First Name', title: 'First Name' },
                 lastName: { type: 'string', description: 'Last Name', title: 'Last Name' },
                 email: { type: 'string', description: 'Email Address', title: 'Email Address' },
-                taskowner: { type: 'string',description: 'Task Owner', title: 'Task Owner' },
+                taskowner: { type: 'string', description: 'Task Owner', title: 'Task Owner' },
                 badge: { type: 'string', description: 'Badge Status', title: 'Badge Status' },
                 badgeStyle: { type: 'string', description: 'Badge Style', title: 'Badge Style' },
                 comment: { type: 'string', description: 'Comment', title: 'Comment' },
@@ -139,7 +171,7 @@ class CommentsElement extends LitElement {
             newCommentAdded: {
               type: 'boolean',
               description: 'True when a new deletable comment exists. Use this in submission rules.',
-              title: 'New Comment Added'
+              title: 'New Comment Added',
             },
           },
         },
@@ -162,11 +194,11 @@ class CommentsElement extends LitElement {
     workingComments: { type: Array },
     newComment: { type: String },
     readOnly: { type: Boolean },
-    deletableIndices: { type: Array },
     historyLimit: { type: Number },
     showAll: { type: Boolean },
     outputobj: { type: Object },
     newCommentAdded: { type: Boolean },
+    sessionIds: { type: Array },
   };
 
   constructor() {
@@ -182,119 +214,98 @@ class CommentsElement extends LitElement {
     this.inputobj = null;
     this.workingComments = [];
     this.newComment = '';
-    this.deletableIndices = [];
     this.historyLimit = 5;
     this.showAll = false;
     this.newCommentAdded = false;
+    this.sessionIds = [];
+    this._hydrated = false;
   }
 
   toggleShowAll() {
     this.showAll = !this.showAll;
   }
 
-  // Adjust the comments array based on the historyLimit and showAll
-  get displayedComments() {
-    if (this.showAll) {
-      return this.workingComments; // Display all comments when 'show all' is active
-    }
-    return this.workingComments.slice(-this.historyLimit); // Display only the latest `historyLimit` comments
-  }
-
   updated(changedProperties) {
-    if (changedProperties.has('inputobj') && Array.isArray(this.inputobj?.comments)) {
-      this.workingComments = [...this.inputobj.comments];
-      this.deletableIndices = []; // Reset deletable indices when inputobj changes
-      this.updateNewCommentFlag(); // Force newCommentAdded = false for old comments
+    // Hydrate once, from whichever source arrives. Guarding on _hydrated stops
+    // a late or repeated assignment from wiping comments the user has already
+    // posted in this session.
+    if (!this._hydrated) {
+      // Path 1: comments handed in from a previous control in the workflow.
+      if (changedProperties.has('inputobj') && Array.isArray(this.inputobj?.comments)) {
+        this.hydrate(this.inputobj.comments);
+      }
+      // Path 2: a submitted form being viewed again. Nintex returns the stored
+      // value rather than inputobj, so restore from our own output.
+      else if (changedProperties.has('outputobj') && Array.isArray(this.outputobj?.comments)) {
+        this.hydrate(this.outputobj.comments);
+      }
     }
-  
-    // Check for changes to commentsBorder or commentsStriped and trigger re-render
+
     if (changedProperties.has('commentsBorder') || changedProperties.has('commentsStriped')) {
       this.requestUpdate();
     }
-  
+
     if (changedProperties.has('readOnly')) {
       this.requestUpdate();
     }
-
-    // Validate when inputobj changes (older comments should not count)
-    if (changedProperties.has('inputobj')) {
-      this.validateCommentRequirement();
-    }
   }
 
-  validateCommentRequirement() {
-    // A "new" comment is one that exists in deletableIndices
-    const hasNewComment = this.deletableIndices.length > 0;
 
-    this.dispatchEvent(
-      new CustomEvent('ntx-validation-state-change', {
-        detail: { isValid: hasNewComment },
-        bubbles: true,
-        composed: true
-      })
-    );
+  hydrate(comments) {
+    this._hydrated = true;
+    const mine = this.workingComments.filter((entry) => this.sessionIds.includes(entry.id));
+    const inherited = comments.map((entry) => ({ ...entry, id: entry.id || newId() }));
+    this.workingComments = [...inherited, ...mine];
+    this.updateOutput();
   }
 
-  updateNewCommentFlag() {
-    const hasNew = this.deletableIndices.length > 0;
-
-    // Update the property directly for Lit reactivity
+  updateOutput() {
+    const hasNew = this.sessionIds.length > 0;
     this.newCommentAdded = hasNew;
 
-    // Build the full payload INCLUDING newCommentAdded inside the object
     this.outputobj = {
       comments: this.workingComments,
       mostRecentComment: this.workingComments[this.workingComments.length - 1] || null,
-      newCommentAdded: hasNew
+      newCommentAdded: hasNew,
     };
 
-    // Debug logging
-    console.log('dispatching ntx-value-change', this.outputobj);
-
-    // Dispatch the object
-    this.dispatchEvent(new CustomEvent('ntx-value-change', { detail: this.outputobj }));
+    this.dispatchEvent(new CustomEvent('ntx-value-change', {
+      detail: this.outputobj,
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   addComment() {
-    const timestamp = new Date().toISOString();
+    const text = this.newComment.trim();
+    if (!text) return;
 
-    const newEntry = {
+    const entry = {
+      id: newId(),
       firstName: this.firstName || 'Anonymous',
       lastName: this.lastName || '',
       email: this.email || 'N/A',
       taskowner: this.taskowner || '',
       badge: this.badge || 'Update',
       badgeStyle: this.badgeStyle || 'Default',
-      comment: this.newComment,
-      timestamp,
+      comment: text,
+      timestamp: new Date().toISOString(),
     };
 
-    // Add the new comment to the workingComments array
-    this.workingComments = [...this.workingComments, newEntry];
-
-    // Mark the new comment as deletable
-    this.deletableIndices = [...this.deletableIndices, this.workingComments.length - 1];
-
-    // Update the flag and dispatch
-    this.updateNewCommentFlag();
-
-    // Clear the newComment field
+    this.workingComments = [...this.workingComments, entry];
+    this.sessionIds = [...this.sessionIds, entry.id];
     this.newComment = '';
+    this.updateOutput();
   }
 
-  deleteComment(index) {
-    // Remove the comment at the specified index
-    this.workingComments = this.workingComments.filter((_, i) => i !== index);
-  
-    // Update the deletableIndices to reflect the shifted indices
-    this.deletableIndices = this.deletableIndices
-      .filter(i => i !== index) // Remove the deleted index
-      .map(i => (i > index ? i - 1 : i)); // Shift indices down for remaining comments after the deleted index
-  
-    // Update the flag and dispatch
-    this.updateNewCommentFlag();
+  deleteComment(id) {
+    if (this.readOnly || !this.sessionIds.includes(id)) return;
+
+    this.workingComments = this.workingComments.filter((entry) => entry.id !== id);
+    this.sessionIds = this.sessionIds.filter((sessionId) => sessionId !== id);
+    this.updateOutput();
   }
-  
+
   handleCommentChange(e) {
     this.newComment = e.target.value;
   }
@@ -306,69 +317,77 @@ class CommentsElement extends LitElement {
       Danger: '#dc3545',
       Warning: '#ffc107',
       Info: '#0dcaf0',
-      Primary: '#0d6efd',
+      Primary: '#247b7b',
       Secondary: '#6c757d',
-      Default: '#0d6efd'
+      Default: '#247b7b'
     };
     return colors[badgeStyle] || colors.Default;
   }
 
   render() {
     const showAllComments = this.historyLimit === 0 || this.showAll;
-    const displayedComments = showAllComments ? this.workingComments : this.workingComments.slice(-this.historyLimit);
-  
-    // Conditionally adding classes for commentsBorder and commentsStriped
+    const displayedComments = showAllComments
+      ? this.workingComments
+      : this.workingComments.slice(-this.historyLimit);
+
     const commentsHistoryClasses = [
       this.commentsBorder ? 'comments-border' : '',
       this.commentsStriped ? 'comments-striped' : ''
     ].filter(Boolean).join(' ');
-  
+
     return html`
       <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet" />
-      
+
       <!-- Show "Show All Comments" button if there are more comments than the limit -->
       ${this.historyLimit > 0 && this.workingComments.length > this.historyLimit ? html`
         <div class="d-flex justify-content-center mb-3">
-          <button 
+          <button
             class="btn btn-default rounded-pill d-flex align-items-center"
             type="button"
+            aria-expanded=${this.showAll ? 'true' : 'false'}
             @click=${this.toggleShowAll}
           >
-            ${expandIcon} 
+            ${expandIcon}
             <div class="ms-1">
             ${this.showAll ? ' Hide All Comments' : ' Show All Comments'}
             </div>
           </button>
         </div>
       ` : ''}
-  
+
       <!-- Display the comments with applied styles -->
       ${displayedComments.length > 0 ? html`
         <div class="comments-history ${commentsHistoryClasses}">
-          ${displayedComments.map((item, index) => html`
+          ${displayedComments.map((item) => html`
             <div class="card comment-card shadow-sm" style="border-left: 4px solid ${this.getBorderColor(item.badgeStyle)}">
               <div class="card-body">
                 <div class="d-flex flex-row align-items-center gap-2">
                   <h6 class="fw-bold mb-0">
-                    <span class="me-1">👤</span>${item.firstName} ${item.lastName || ''}
+                    <span class="me-1" aria-hidden="true">👤</span>${item.firstName} ${item.lastName || ''}
                   </h6>
                   ${item.taskowner ? html`
                     <span class="badge bg-secondary rounded-pill">
-                      <span class="me-1">👔</span>${item.taskowner}
+                      <span class="me-1" aria-hidden="true">👔</span>${item.taskowner}
                     </span>
                   ` : ''}
                   <span class="badge ${this.getBadgeClass(item.badgeStyle) || 'Default'} rounded-pill">
                     ${item.badge || 'Update'}
                   </span>
-                  ${this.deletableIndices.includes(index) && !this.readOnly ? html`
-                    <button class="btn btn-sm btn-danger ms-auto" @click=${() => this.deleteComment(index)}>
+                  ${this.sessionIds.includes(item.id) && !this.readOnly ? html`
+                    <button
+                      class="btn btn-sm btn-danger ms-auto"
+                      type="button"
+                      aria-label="Delete your comment"
+                      title="Delete your comment"
+                      @click=${() => this.deleteComment(item.id)}
+                    >
                       ${deleteIcon}
                     </button>
                   ` : ''}
                 </div>
                 <div class="d-flex flex-row align-items-center mt-1">
                   <p class="mb-0 text-muted comment-date">
-                    <span class="me-1">🕒</span>
+                    <span class="me-1" aria-hidden="true">🕒</span>
                     ${new Date(item.timestamp).toLocaleString('en-GB', {
                       weekday: 'short',
                       year: 'numeric',
@@ -389,10 +408,12 @@ class CommentsElement extends LitElement {
           `)}
         </div>
       ` : html``}
-  
+
       ${!this.readOnly ? html`
         <div class="mt-4">
+          <label class="visually-hidden-label" for="new-comment">Write your comment</label>
           <textarea
+            id="new-comment"
             class="comment-textarea"
             .value=${this.newComment}
             @input=${this.handleCommentChange}
@@ -408,10 +429,13 @@ class CommentsElement extends LitElement {
           </button>
         </div>
       ` : ''}
+
+      <p class="visually-hidden-label" role="status" aria-live="polite">
+        ${this.newCommentAdded ? 'Comment posted to workflow.' : ''}
+      </p>
     `;
   }
-  
-  // Helper method to apply the correct class based on badge style
+
   getBadgeClass(style) {
     const badgeClasses = {
       Default: 'badge badge-default',
